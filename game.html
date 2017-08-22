@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html>
+<head>
+	<meta charset="UTF-8" />
+	<title>Document</title>
+	<link rel="stylesheet" type="text/css" href="css/style.css"/>
+</head>
+<body>
+	<div class="content">
+		<div class="start"></div>
+		<div class="main">
+			<p>积分：<span id="scores">0</span></p>
+			<div id="hpbox">
+				<span>生命值</span>
+				<div id="border">
+					<div id="hp"></div>
+				</div>
+			</div>
+			<div id="over">Game Over</div>
+		</div>
+	</div>
+	<script type="text/javascript" src="js/tools.js"></script>
+	<script type="text/javascript">
+		//点击图片进入游戏界面
+		var	guan=0;//用来判断是否换关卡，默认为换
+		var dirX=[],dirY=[];//用来保存每颗宝石横向和纵向的移动方向和速度（正负表示方向，数值大小表示移动速度）
+		$(".start")[0].addEventListener("click",function(e){
+			
+			var game = new Game();//利用对战平台构造函数创建对战平台对象
+				game.create();//调用create函数  创建战机
+			$(".start")[0].style.display="none";
+			$("#hpbox").style.display="block";
+				game.myPlaneMove();
+				game.play();				
+		})
+		function crash(objec1,objec2){//判断两个矩形是否碰撞，碰撞返回true，未碰撞返回false
+			return (!((objec1.x+objec1.width<objec2.x )||
+						(objec1.x>objec2.x+objec2.width) ||
+						(objec1.y>objec2.y+objec2.height) ||
+						(objec1.y+objec1.height<objec2.y)));
+		}	
+		//创建构造函数
+		//创建地图构造函数
+		function Map(width,height,element){
+			this.width=width;
+			this.height=height;
+			this.element=element || $(".main")[0];
+		}
+		//创建战机公共构造函数
+		function Role(width,height,x,y,imgSrc){
+			this.width=width;
+			this.height=height;
+			this.x=x;
+			this.y=y;
+			this.element=null;
+			this.imgSrc=imgSrc;
+			this.isAlive=true;//标记当前角色是否存活
+		}
+		Role.prototype={
+			create:function(){//初始化创建DOM元素
+				//创建DOM元素
+				var _ele=this.element=document.createElement("img");
+				//设置CSS样式
+				CSS(_ele,{
+					width:this.width+"px",
+					height:this.height+"px",
+					position:"absolute",
+					left:this.x+"px",
+					top:this.y+"px"
+				})
+				_ele.src=this.imgSrc;//创建出来的DOM元素路径
+				this.map.element.appendChild(_ele);
+				
+			},
+			move:function(){//敌机或者子弹自动移动
+				this.y+=this.speed;
+				CSS(this.element,{top:this.y+"px"});
+				if(this.y>this.map.height||this.y<0){
+					this.isAlive=false;//子弹超过上边界标记为不存活或者敌机超过下边界标记为不存活
+					this.map.element.removeChild(this.element);//如果角色不存活则将其从页面上移出
+				}	
+			},
+			gemMove:function(k){//宝石移动
+						
+					if(this.x>=this.map.width-this.width || this.x<=0){
+						if(this.x>this.map.width-this.width)
+							this.x=this.map.width-this.width;
+						else if(this.x<=0)
+							this.x=0;
+						dirX[k]*=-1;
+					}
+					if(this.y>=this.map.height-this.height || this.y<=0){
+						dirY[k]*=-1;
+						if(this.y>this.map.height-this.height)
+							this.y=this.map.height-this.height;
+						else if(this.y<=0)
+							this.y=0;
+					}
+					this.x+=dirX[k];
+					this.y+=dirY[k];
+					
+				CSS(this.element,{left:this.x+"px",top:this.y+"px"});
+			}
+		}
+		//自己的战机构造函数
+		function MyPlane(width,height,x,y,imgSrc,myHP){
+			Role.apply(this,arguments);
+			this.myHP=myHP;
+		}
+		MyPlane.prototype = new Role(); 
+		//敌机构造函数
+		//宽度、高度、x坐标、y坐标、图片路径、移动速度、血量、攻击.
+		function EnemyPlane(width,height,x,y,imgSrc,speed,hp,attack){
+			Role.apply(this,arguments);
+			this.speed=speed;
+			this.hp=hp;
+			this.attack=attack;//敌机的攻击，即敌机与战机相撞后产生的伤害		
+		}
+		EnemyPlane.prototype= new Role();
+		//子弹构造函数
+		//宽度，高度，x坐标，y坐标，图片路径，速度，攻击
+		function Bullet(width,height,x,y,imgSrc,speed,dam){
+			Role.apply(this,arguments);
+			this.speed=speed;
+			this.dam=dam;		
+		}
+		Bullet.prototype = new Role();
+		//对战平台构造函数
+		function Game(){
+			this.myplane=null;//自己的战机
+			this.map=null;//对战地图
+			this.enemys=[];//敌机
+			this.bullets=[];//子弹	
+			this.baozas=[];//敌机爆炸
+			this.gems=[];//宝石
+			this.scroe=0;//积分
+			this.myHP=0;//战机生命值
+		}
+		//爆炸效果构造函数
+		function Baoza(width,height,x,y,imgSrc){
+			Role.apply(this,arguments);
+		}
+		Baoza.prototype = new Role();
+		//宝石效果构造函数
+		function Gem(width,height,x,y,imgSrc){
+			Role.apply(this,arguments);		
+		}
+		Gem.prototype = new Role();		
+		var content = 0;//用来暂存计时器执行了多少次
+		Game.prototype={
+			create:function(){
+				this.map = new Map(320,568);//利用地图构造函数创建地图对象
+				this.myplane = new MyPlane(66,80,100,400,"images/own.png",100);//利用战机构造函数创建战机对象
+				this.myplane.map=this.map;//建立战机与地图的关联关系
+				this.myplane.create();//创建战机
+				this.myHP=this.myplane.myHP;
+			},
+			myPlaneMove:function(){//战机移动
+				var that=this;//用that变量暂存调用该 移动函数的DOM对象 -- 即game
+				this.map.element.addEventListener("mousemove",function(e){//为战机DOM元素添加鼠标移动事件
+					
+					offset(that.myplane.element,{left:e.pageX-that.myplane.width/2,
+												top:e.pageY-that.myplane.height/2});
+					var _left=parseInt(that.myplane.element.style.left),//获取战机DOM元素的left值和top值
+						_top=parseInt(that.myplane.element.style.top);
+					if(_left<0)//控制战机移动范围
+						_left=0;
+					else if(_left>that.map.width-that.myplane.width)
+						_left=that.map.width-that.myplane.width;
+					if(_top<0)
+						_top=0;
+					else if(_top>that.map.height-that.myplane.height)
+						_top=that.map.height-that.myplane.height;
+					CSS(that.myplane.element,{left:_left+"px",top:_top+"px"});	
+						that.myplane.x=_left;//将战机的x,y值重新赋值为当前位置
+						that.myplane.y=_top;
+				})
+			},
+			play:function(){//一局游戏
+				var that=this;//用that变量暂存调用该移动函数的DOM对象 -- 即game
+						//创建敌机的函数;参数分别为：宽度，高度，x坐标，y坐标，图片路径，速度，血量,积分,攻击
+				var hpWidth=0;
+				
+				function createEnemy(width,height,x,y,imgSrc,speed,hp,scroe,attack){
+					var enemyPlane = new EnemyPlane(width,height,x,10,imgSrc,speed,attack),
+						strong=Math.floor(that.scroe/10000);//每多1W分，敌机加强一次
+							enemyPlane.map=that.map;//
+							enemyPlane.scroe=scroe;
+							hp=hp+strong*hp;//敌机血量多一倍
+							attack=attack+attack*strong*0.5;//攻击增加50%
+							enemyPlane.attack=attack;
+							enemyPlane.hp=hp;
+							enemyPlane.create();
+							that.enemys.push(enemyPlane);
+				}
+				//在敌机位置创建爆炸效果
+				//参数分别为爆炸效果的宽度、高度、x坐标、y坐标、图片路径
+				function baoza(width,height,x,y,imgSrc){
+					var _baoza = new Baoza(width,height,x,y,imgSrc);
+					_baoza.map=that.map;
+					_baoza.create();
+					that.baozas.push(_baoza);	
+				}
+				//创建宝石效果
+				//参数分别为宝石的宽度、高度、x坐标、y坐标、图片路径，数量
+				function gem(width,height,x,y,imgSrc,num,speed){
+					for(var i=0;i<num;i++){	
+						var _gem = new Gem(width,height,x,y,imgSrc);
+							_gem.map=that.map;
+							dirX.push(speed);
+							dirY.push(speed);
+							_gem.create();
+							that.gems.push(_gem);
+					}
+				}
+				//关卡更换
+				function guanka(g){
+					clearInterval(timer);
+					$("#over").innerHTML="第"+(g+1)+"关-敌机血量加倍，攻击加强50%";
+					$("#over").style.display="block";
+					if(g>=4){
+						$(".main")[0].style.background="url(images/bg5.jpg)";
+					}
+					else{
+						$(".main")[0].style.background="url(images/bg"+(g+2)+".jpg)";	
+					}
+					setTimeout(function(){
+						that.play();
+						$("#over").style.display="none";
+					},2000)
+				}
+				
+			var timer=setInterval(function(){
+					content++;
+					//判断是否更换关卡；每1W积分更换一次，地图只有五张。。。
+				var isGuanka=Math.floor(that.scroe/10000);
+					if(isGuanka>guan){
+						guan=isGuanka;
+						guanka(guan);
+					}
+					if(content%5==0){//创建子弹
+					var _bulletX=that.myplane.x+that.myplane.width/2,
+					 	_bulletY=that.myplane.y-10;
+					var	bullet = new Bullet(6,14,_bulletX,_bulletY,"images/zidan.png",-8,1);
+						bullet.map=that.map;
+						bullet.create();
+						that.bullets.push(bullet);
+					 	if(isGuanka>=2){
+					 		for(var z=0;z<2;z++){//当在第三关及以后时，每次发射的子弹变为3颗
+								var	bullet1 = new Bullet(6,14,_bulletX-that.myplane.width/4,
+										_bulletY,"images/zidan.png",-8,1);
+									bullet1.map=that.map;
+									bullet1.create();
+									that.bullets.push(bullet1);
+					 				_bulletX+=that.myplane.width/2;
+					 		}	
+					 	}
+					}
+					if(content%30==0){//创建小飞机
+						var radom=Math.floor(Math.random()*(that.map.width-that.myplane.width)+that.myplane.width/2);
+						var speed=Math.floor(Math.random()*3+2);
+						//敌机参数：宽度、高度、x坐标、y坐标、图片路径、移动速度、生命、积分、攻击
+							createEnemy(34,24,radom,10,"images/xiaofeiji.png",speed,2,200,10);
+					}
+					if(content%100==0){//创建中飞机
+						var radom=Math.floor(Math.random()*(that.map.width-that.myplane.width)+that.myplane.width/2);
+							createEnemy(46,60,radom,10,"images/zhongfeiji.png",2,5,500,20);						
+					}
+					if(content%300==0){//创建大飞机
+						var radom=Math.floor(Math.random()*(that.map.width-that.myplane.width)+that.myplane.width/2);
+							createEnemy(80,100,radom,10,"images/xiaozhong.png",1,10,1000,30);
+					}
+					if(content%1000==0){//创建BOSS飞机
+						var radom=Math.floor(Math.random()*(that.map.width-that.myplane.width)+that.myplane.width/2);
+							createEnemy(110,164,radom,10,"images/dafeiji.png",0.5,50,5000,50);
+					}
+					
+					//点击鼠标右键（阻止默认事件）
+					that.myplane.element.oncontextmenu=function(e){
+						e=e||event;
+						e.preventDefault();
+					}
+					//在游戏中点击鼠标左键发射大型炮弹
+					that.myplane.element.onclick=function(e){
+							e=e||event;
+							e.preventDefault();
+							//让炮弹从战机中间发射出去
+						var _bulletX=that.myplane.x+that.myplane.width/2-12,
+					 		_bulletY=that.myplane.y-10,
+					 		//子弹参数：宽度，高度，x坐标，y坐标，图片路径，速度，攻击
+					 		bullet = new Bullet(25,60,_bulletX,_bulletY,"images/wp3.png",-4,10);
+							bullet.map=that.map;
+							bullet.create();
+							that.bullets.push(bullet);
+					}
+					for(var i=that.enemys.length-1;i>=0;i--){//敌机移动
+						that.enemys[i].move();
+						if(!that.enemys[i].isAlive){//每次移动判断当前角色是否存活
+							that.enemys.splice(i,1);//若不存活则从数组中将该元素删除
+						}
+						var result=crash(that.enemys[i],that.myplane);//判断战机是否与敌机相撞
+							if(result){//如果相撞则从页面移出敌机，战机则减少相当于移出的敌机的攻击的血量
+								that.myplane.myHP-=that.enemys[i].attack;
+								hpWidth+=that.enemys[i].attack*($("#border").offsetWidth/that.myHP);
+								if(hpWidth>=$("#border").offsetWidth)
+									hpWidth=$("#border").offsetWidth-2;
+								$("#hp").style.width=hpWidth+"px";
+								//敌机爆炸效果
+								baoza(that.enemys[i].width,that.enemys[i].height,that.enemys[i].x,that.enemys[i].y,"images/dfjbz.png");							
+								setTimeout(function(){
+										//每次出现的爆炸效果只能显示一秒
+										that.map.element.removeChild(that.baozas[0].element);
+										that.baozas.splice(0,1);
+									},1000);
+								that.map.element.removeChild(that.enemys[i].element);
+								that.scroe+=that.enemys[i].scroe;
+								$("#scores").innerHTML=that.scroe;
+								that.enemys.splice(i,1);						
+								if(that.myplane.myHP<=0){
+									baoza(that.myplane.width,that.myplane.width,that.myplane.x,that.myplane.y,"images/ownbz.png");
+									that.map.element.removeChild(that.myplane.element);
+										//战机移出，游戏结束，清空计时器，显示Game Over，结束函数play运行
+										clearInterval(timer);
+										$("#over").innerHTML="Game Over";
+										$("#over").style.display="block";
+										return;
+								}
+							}
+					}
+					for(var j=that.bullets.length-1;j>=0;j--){//子弹移动
+						that.bullets[j].move();
+						if(!that.bullets[j].isAlive){
+							that.bullets.splice(j,1);
+						}
+					}
+					document.onkeydown=function(e){
+						if(e.ctrlKey){//外挂...按住ctrl键会随机位置导弹支援
+						var _bulletX=Math.floor(Math.random()*that.map.width),
+						 	_bulletY=that.map.height+Math.floor(Math.random()*50);
+						var	bullet = new Bullet(13,25,_bulletX,_bulletY,"images/daodan1.png",-5,10);
+							bullet.map=that.map;
+							bullet.create();
+							that.bullets.push(bullet);
+						}
+					}
+					for(var k=that.gems.length-1;k>=0;k--){//宝石移动
+						var col=crash(that.gems[k],that.myplane);//判断宝石与战机是否相撞
+							if(col){
+								//每拾取一颗宝石，则恢复战机生命值5点
+								that.myplane.myHP+=5;
+								if(that.myplane.myHP>=that.myHP)//若超过战机总生命值则不在增加
+									that.myplane.myHP=that.myHP;
+								hpWidth-=5*($("#border").offsetWidth/that.myHP);
+								if(hpWidth<0)//改变生命条的显示
+									hpWidth=0;
+								$("#hp").style.width=hpWidth+"px";
+								//相撞则将宝石从页面移出，再从宝石数组中删除，然后增加总分
+								that.map.element.removeChild(that.gems[k].element);
+								that.gems.splice(k,1);
+								dirX.splice(k,1);
+								dirY.splice(k,1);
+								that.scroe+=500;
+								$("#scores").innerHTML=that.scroe;
+								continue;
+							}
+						that.gems[k].gemMove(k);
+					}
+					for(var i=that.enemys.length-1;i>=0;i--){//将存活的敌机和子弹分别遍历判断是否碰撞
+						for(var j=that.bullets.length-1;j>=0;j--){
+							var result=crash(that.enemys[i],that.bullets[j]);
+								if(result){
+									that.enemys[i].hp-=that.bullets[j].dam;
+									
+									if(that.enemys[i].hp<=0){
+										//在敌机位置创建爆炸效果									
+										var	speed=Math.floor(1+Math.random()*3);
+										baoza(that.enemys[i].width,that.enemys[i].height,that.enemys[i].x,that.enemys[i].y,"images/dfjbz.png");
+										//宝石产生的位置（在战机爆炸的中心位置）及数量
+										//参数为：宽度，高度，x坐标，y坐标，图片路径，数量，速度
+										gem(that.enemys[i].width/2,
+											that.enemys[i].height/2,
+											that.enemys[i].x+that.enemys[i].width/4,
+											that.enemys[i].y+that.enemys[i].height/4,
+											"images/zb4.png",1,speed);
+									setTimeout(function(){
+										//每次出现的爆炸效果只能显示一秒
+										that.map.element.removeChild(that.baozas[0].element);
+										that.baozas.splice(0,1);
+									},1000);
+										that.map.element.removeChild(that.enemys[i].element);
+										that.scroe+=that.enemys[i].scroe;
+										that.enemys.splice(i,1);
+									}
+									that.map.element.removeChild(that.bullets[j].element);
+									that.bullets.splice(j,1);
+									$("#scores").innerHTML=that.scroe;
+									break;
+								}
+						}
+					}	
+				},1000/60)
+			}	
+		}
+	</script>
+</body>
+</html>
